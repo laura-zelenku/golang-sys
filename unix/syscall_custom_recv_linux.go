@@ -10,10 +10,69 @@ const (
 )
 
 type ReceiveResp struct {
-	size int
-	buff *[MaxSegmentSize]byte
-	from  Sockaddr
-	err  error
+	Oob       []byte
+	P         []byte
+	Size      int
+	From      Sockaddr
+	Err       error
+	Recvflags int
+	Oobn      int
+}
+
+func Recvmsgs2(fd int, rr *ReceiveResp, flags int) (n, oobn int, recvflags int, from Sockaddr, err error) {
+	return Recvmsgs(fd, rr.P, rr.Oob, flags)
+}
+
+func Recvmsgs3(fd int, rr *ReceiveResp, flags int) (n int, err error) {
+	msgs := make([]Mmsghdr, 1)
+	var msg Msghdr
+	var rsa RawSockaddrAny
+	msg.Name = (*byte)(unsafe.Pointer(&rsa))
+	msg.Namelen = uint32(SizeofSockaddrAny)
+	var iov Iovec
+	if len(rr.P) > 0 {
+		iov.Base = &rr.P[0]
+		iov.SetLen(len(rr.P))
+	}
+	var dummy byte
+	if len(rr.Oob) > 0 {
+		if len(rr.P) == 0 {
+			var sockType int
+			sockType, err = GetsockoptInt(fd, SOL_SOCKET, SO_TYPE)
+			if err != nil {
+				return
+			}
+			// receive at least one normal byte
+			if sockType != SOCK_DGRAM {
+				iov.Base = &dummy
+				iov.SetLen(1)
+			}
+		}
+		msg.Control = &rr.Oob[0]
+		msg.SetControllen(len(rr.Oob))
+	}
+	msg.Iov = &iov
+	msg.Iovlen = 1
+	msgs[0].Msghdr = msg
+
+	if n, err = recvmmsg(fd, msgs, flags); err != nil {
+		return
+	}
+	rr.Size = msgs[0].Msglen
+
+	oobn := int(msg.Controllen)
+	recvflags := int(msg.Flags)
+	// source address is only specified if the socket is unconnected
+	var from Sockaddr
+	if rsa.Addr.Family != AF_UNSPEC {
+		from, err = anyToSockaddr(fd, &rsa)
+	}
+
+	rr.Oobn = oobn
+	rr.Recvflags = recvflags
+	rr.Err = err
+	rr.From = from
+	return
 }
 
 func Recvmsgs(fd int, p, oob []byte, flags int) (n, oobn int, recvflags int, from Sockaddr, err error) {
@@ -96,8 +155,8 @@ func Recvmsgs(fd int, p, oob []byte, flags int) (n, oobn int, recvflags int, fro
 //}
 
 type Mmsghdr struct {
- Msghdr Msghdr  /* Message header */
- Msglen int;  /* Number of received bytes for header */
+	Msghdr Msghdr /* Message header */
+	Msglen int    /* Number of received bytes for header */
 }
 
 func recvmmsg(s int, hs []Mmsghdr, flags int) (int, error) {
