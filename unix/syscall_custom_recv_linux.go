@@ -19,7 +19,7 @@ type ReceiveResp struct {
 	Oobn      int
 }
 
-func Recvmmsg(fd int, rrs []ReceiveResp, flags int) (n int, err error) {
+func Recvmmsg(fd int, rrs []*ReceiveResp, flags int) (n int, err error) {
 	msgs := make([]Mmsghdr, len(rrs))
 	for i, rr := range rrs {
 		var msg Msghdr
