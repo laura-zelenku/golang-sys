@@ -19,8 +19,10 @@ type ReceiveResp struct {
 	Oobn      int
 }
 
+var msgsAlloc = make([]Mmsghdr, 1000)
+
 func Recvmmsg(fd int, rrs []*ReceiveResp, flags int) (n int, err error) {
-	msgs := make([]Mmsghdr, len(rrs))
+	msgs := msgsAlloc[:len(rrs)]
 	for i, rr := range rrs {
 		var msg Msghdr
 		var rsa RawSockaddrAny
