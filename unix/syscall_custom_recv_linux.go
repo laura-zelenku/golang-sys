@@ -19,12 +19,9 @@ type ReceiveResp struct {
 	Oobn      int
 }
 
-func Recvmmsg(fd int, rrs []*ReceiveResp, flags int) (n int, err error) {
+func Recvmmsg(fd int, rrs []ReceiveResp, flags int) (n int, err error) {
 	msgs := make([]Mmsghdr, len(rrs))
-	var rr *ReceiveResp
-
-	for i := 0; i < len(rrs); i++ {
-		rr = rrs[i]
+	for i, rr := range rrs {
 		var msg Msghdr
 		var rsa RawSockaddrAny
 		msg.Name = (*byte)(unsafe.Pointer(&rsa))
@@ -53,34 +50,22 @@ func Recvmmsg(fd int, rrs []*ReceiveResp, flags int) (n int, err error) {
 		}
 		msg.Iov = &iov
 		msg.Iovlen = 1
-
 		msgs[i].Msghdr = msg
 	}
-
 	if n, err = recvmmsg(fd, msgs, flags); err != nil {
 		return
 	}
-
-	for i := 0; i < len(rrs); i++ {
-		rr = rrs[i]
+	for i, rr := range rrs {
 		rr.Size = msgs[i].Msglen
 		msg := msgs[i].Msghdr
-
-		oobn := int(msg.Controllen)
-		recvflags := int(msg.Flags)
+		rr.Oobn = int(msg.Controllen)
+		rr.Recvflags = int(msg.Flags)
 		// source address is only specified if the socket is unconnected
-		var from Sockaddr
 		rsa := (*RawSockaddrAny)(unsafe.Pointer(msg.Name))
 		if rsa.Addr.Family != AF_UNSPEC {
-			from, err = anyToSockaddr(fd, rsa)
+			rr.From, rr.Err = anyToSockaddr(fd, rsa)
 		}
-
-		rr.Oobn = oobn
-		rr.Recvflags = recvflags
-		rr.Err = err
-		rr.From = from
 	}
-
 	return
 }
 
