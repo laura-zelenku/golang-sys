@@ -19,140 +19,70 @@ type ReceiveResp struct {
 	Oobn      int
 }
 
-func Recvmsgs2(fd int, rr *ReceiveResp, flags int) (n, oobn int, recvflags int, from Sockaddr, err error) {
-	return Recvmsgs(fd, rr.P, rr.Oob, flags)
-}
+func Recvmmsg(fd int, rrs []*ReceiveResp, flags int) (n int, err error) {
+	msgs := make([]Mmsghdr, len(rrs))
+	var rr *ReceiveResp
 
-func Recvmsgs3(fd int, rr *ReceiveResp, flags int) (n int, err error) {
-	msgs := make([]Mmsghdr, 1)
-	var msg Msghdr
-	var rsa RawSockaddrAny
-	msg.Name = (*byte)(unsafe.Pointer(&rsa))
-	msg.Namelen = uint32(SizeofSockaddrAny)
-	var iov Iovec
-	if len(rr.P) > 0 {
-		iov.Base = &rr.P[0]
-		iov.SetLen(len(rr.P))
-	}
-	var dummy byte
-	if len(rr.Oob) > 0 {
-		if len(rr.P) == 0 {
-			var sockType int
-			sockType, err = GetsockoptInt(fd, SOL_SOCKET, SO_TYPE)
-			if err != nil {
-				return
-			}
-			// receive at least one normal byte
-			if sockType != SOCK_DGRAM {
-				iov.Base = &dummy
-				iov.SetLen(1)
-			}
+	for i := 0; i < len(rrs); i++ {
+		rr = rrs[i]
+		var msg Msghdr
+		var rsa RawSockaddrAny
+		msg.Name = (*byte)(unsafe.Pointer(&rsa))
+		msg.Namelen = uint32(SizeofSockaddrAny)
+		var iov Iovec
+		if len(rr.P) > 0 {
+			iov.Base = &rr.P[0]
+			iov.SetLen(len(rr.P))
 		}
-		msg.Control = &rr.Oob[0]
-		msg.SetControllen(len(rr.Oob))
+		var dummy byte
+		if len(rr.Oob) > 0 {
+			if len(rr.P) == 0 {
+				var sockType int
+				sockType, err = GetsockoptInt(fd, SOL_SOCKET, SO_TYPE)
+				if err != nil {
+					return
+				}
+				// receive at least one normal byte
+				if sockType != SOCK_DGRAM {
+					iov.Base = &dummy
+					iov.SetLen(1)
+				}
+			}
+			msg.Control = &rr.Oob[0]
+			msg.SetControllen(len(rr.Oob))
+		}
+		msg.Iov = &iov
+		msg.Iovlen = 1
+
+		msgs[i].Msghdr = msg
 	}
-	msg.Iov = &iov
-	msg.Iovlen = 1
-	msgs[0].Msghdr = msg
 
 	if n, err = recvmmsg(fd, msgs, flags); err != nil {
 		return
 	}
-	rr.Size = msgs[0].Msglen
 
-	oobn := int(msg.Controllen)
-	recvflags := int(msg.Flags)
-	// source address is only specified if the socket is unconnected
-	var from Sockaddr
-	if rsa.Addr.Family != AF_UNSPEC {
-		from, err = anyToSockaddr(fd, &rsa)
-	}
+	for i := 0; i < len(rrs); i++ {
+		rr = rrs[i]
+		rr.Size = msgs[i].Msglen
+		msg := msgs[i].Msghdr
 
-	rr.Oobn = oobn
-	rr.Recvflags = recvflags
-	rr.Err = err
-	rr.From = from
-	return
-}
-
-func Recvmsgs(fd int, p, oob []byte, flags int) (n, oobn int, recvflags int, from Sockaddr, err error) {
-	msgs := make([]Mmsghdr, 1)
-	var msg Msghdr
-	var rsa RawSockaddrAny
-	msg.Name = (*byte)(unsafe.Pointer(&rsa))
-	msg.Namelen = uint32(SizeofSockaddrAny)
-	var iov Iovec
-	if len(p) > 0 {
-		iov.Base = &p[0]
-		iov.SetLen(len(p))
-	}
-	var dummy byte
-	if len(oob) > 0 {
-		if len(p) == 0 {
-			var sockType int
-			sockType, err = GetsockoptInt(fd, SOL_SOCKET, SO_TYPE)
-			if err != nil {
-				return
-			}
-			// receive at least one normal byte
-			if sockType != SOCK_DGRAM {
-				iov.Base = &dummy
-				iov.SetLen(1)
-			}
+		oobn := int(msg.Controllen)
+		recvflags := int(msg.Flags)
+		// source address is only specified if the socket is unconnected
+		var from Sockaddr
+		rsa := (*RawSockaddrAny)(unsafe.Pointer(msg.Name))
+		if rsa.Addr.Family != AF_UNSPEC {
+			from, err = anyToSockaddr(fd, rsa)
 		}
-		msg.Control = &oob[0]
-		msg.SetControllen(len(oob))
+
+		rr.Oobn = oobn
+		rr.Recvflags = recvflags
+		rr.Err = err
+		rr.From = from
 	}
-	msg.Iov = &iov
-	msg.Iovlen = 1
-	msgs[0].Msghdr = msg
-	if n, err = recvmmsg(fd, msgs, flags); err != nil {
-		return
-	}
-	n = msgs[0].Msglen
-	oobn = int(msg.Controllen)
-	recvflags = int(msg.Flags)
-	// source address is only specified if the socket is unconnected
-	if rsa.Addr.Family != AF_UNSPEC {
-		from, err = anyToSockaddr(fd, &rsa)
-	}
+
 	return
 }
-
-// from net package
-
-//func recvMsgs(ms []Message, flags int) (int, error) {
-//	for i := range ms {
-//		ms[i].raceWrite()
-//	}
-//	hs := make(mmsghdrs, len(ms))
-//	var parseFn func([]byte, string) (net.Addr, error)
-//	if c.network != "tcp" {
-//		parseFn = parseInetAddr
-//	}
-//	if err := hs.pack(ms, parseFn, nil); err != nil {
-//		return 0, err
-//	}
-//	var operr error
-//	var n int
-//	fn := func(s uintptr) bool {
-//		n, operr = recvmmsg(s, hs, flags)
-//		if operr == syscall.EAGAIN {
-//			return false
-//		}
-//		return true
-//	}
-//	if err := c.c.Read(fn); err != nil {
-//		return n, err
-//	}
-//	if operr != nil {
-//		return n, os.NewSyscallError("recvmmsg", operr)
-//	}
-//	if err := hs[:n].unpack(ms[:n], parseFn, c.network); err != nil {
-//		return n, err
-//	}
-//	return n, nil
-//}
 
 type Mmsghdr struct {
 	Msghdr Msghdr /* Message header */
