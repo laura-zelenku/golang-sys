@@ -5,10 +5,6 @@ import (
 	"unsafe"
 )
 
-const (
-	MaxSegmentSize = (1 << 16) - 1 // largest possible UDP datagram
-)
-
 type ReceiveResp struct {
 	Oob       []byte
 	P         []byte
@@ -19,10 +15,8 @@ type ReceiveResp struct {
 	Oobn      int
 }
 
-var msgsAlloc = make([]Mmsghdr, 1000)
-
 func Recvmmsg(fd int, rrs []*ReceiveResp, flags int, ts *Timespec) (n int, err error) {
-	msgs := msgsAlloc[:len(rrs)]
+	msgs := make([]Mmsghdr, len(rrs))
 	for i, rr := range rrs {
 		var msg Msghdr
 		var rsa RawSockaddrAny
