@@ -21,7 +21,7 @@ type ReceiveResp struct {
 
 var msgsAlloc = make([]Mmsghdr, 1000)
 
-func Recvmmsg(fd int, rrs []*ReceiveResp, flags int) (n int, err error) {
+func Recvmmsg(fd int, rrs []*ReceiveResp, flags int, ts *Timespec) (n int, err error) {
 	msgs := msgsAlloc[:len(rrs)]
 	for i, rr := range rrs {
 		var msg Msghdr
@@ -54,7 +54,7 @@ func Recvmmsg(fd int, rrs []*ReceiveResp, flags int) (n int, err error) {
 		msg.Iovlen = 1
 		msgs[i].Msghdr = msg
 	}
-	if n, err = recvmmsg(fd, msgs, flags); err != nil {
+	if n, err = recvmmsg(fd, msgs, flags, ts); err != nil {
 		return
 	}
 	for i, rr := range rrs {
@@ -76,7 +76,7 @@ type Mmsghdr struct {
 	Msglen int    /* Number of received bytes for header */
 }
 
-func recvmmsg(s int, hs []Mmsghdr, flags int) (int, error) {
-	n, _, errno := syscall.Syscall6(SYS_RECVMMSG, uintptr(s), uintptr(unsafe.Pointer(&hs[0])), uintptr(len(hs)), uintptr(flags), 0, 0)
+func recvmmsg(s int, hs []Mmsghdr, flags int, ts *Timespec) (int, error) {
+	n, _, errno := syscall.Syscall6(SYS_RECVMMSG, uintptr(s), uintptr(unsafe.Pointer(&hs[0])), uintptr(len(hs)), uintptr(flags), uintptr(unsafe.Pointer(ts)), 0)
 	return int(n), errnoErr(errno)
 }
